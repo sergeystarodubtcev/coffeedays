@@ -11,7 +11,7 @@
 
 1. Создайте новую [Google Таблицу](https://sheets.new), например «КофеДни — заявки в команду».
 2. Откройте **Расширения → Apps Script**.
-3. Удалите содержимое `Code.gs` и вставьте код из [`google-apps-script/Code.gs`](google-apps-script/Code.gs). Сохраните (💾).
+3. ⚙️ Настройки проекта → «Показывать файл манифеста appsscript.json». Вставьте [`appsscript.json`](google-apps-script/appsscript.json), а в `Code.gs` вставьте загрузчик из [`google-apps-script/Code.gs`](google-apps-script/Code.gs). Сохраните (💾).
 4. В выпадающем списке функций выберите `setup` и нажмите **▶ Выполнить**. Разрешите доступ. Если Google покажет «Приложение не проверено», нажмите «Дополнительно → Перейти».
    В таблице появится лист **«Заявки»** с заголовками и колонкой «Статус».
 5. **Начать развёртывание → Новое развёртывание**, тип **«Веб-приложение»**:
@@ -44,15 +44,13 @@
 Настройка: `setupTelegram()` привязывает чат, `setupBot()` включает команды.
 Дополнительно: `enableDailyDigest()` (сводка в 10:00 МСК), `botStatus()` (диагностика), `enablePolling()` (запасной режим).
 
-## Автообновление скрипта
+## Как обновляется код скрипта
 
-Скрипт сам берёт `google-apps-script/Code.gs` и `appsscript.json` из этой ветки и публикует новую версию на тот же URL:
-каждые 10 минут или сразу по запросу `GET <SCRIPT_URL>?action=update`.
+В Apps Script вставлен только загрузчик `google-apps-script/Code.gs` (и `appsscript.json`).
+Вся логика лежит в `google-apps-script/bot.js` и подтягивается из этой ветки GitHub автоматически, примерно через минуту после пуша.
+Переразвёртывать скрипт не нужно. Если в новом коде ошибка или GitHub недоступен, работает последняя рабочая версия.
 
-Включается один раз:
-1. https://script.google.com/home/usersettings: **Google Apps Script API → Вкл.**
-2. В Apps Script: ⚙️ Настройки проекта → «Показывать файл манифеста appsscript.json». Вставьте содержимое `google-apps-script/appsscript.json`.
-3. Вставьте `Code.gs` и запустите `setupAutoUpdate()`.
+Проверить, какая версия работает: `GET <SCRIPT_URL>` возвращает поле `build`. Синхронизировать меню команд бота: `GET <SCRIPT_URL>?action=sync`.
 
 ## GitHub Pages
 
