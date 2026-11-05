@@ -119,6 +119,44 @@ function notify_(p) {
   }
 }
 
+/**
+ * Подключение Telegram в один клик.
+ * 1. Свойства скрипта → TELEGRAM_BOT_TOKEN = токен от @BotFather.
+ * 2. Добавьте бота в чат организаторов и напишите там любое сообщение
+ *    (или напишите боту в личку /start).
+ * 3. Запустите эту функцию: она найдёт чат, сохранит TELEGRAM_CHAT_ID
+ *    и пришлёт тестовое сообщение.
+ */
+function setupTelegram() {
+  var props = PropertiesService.getScriptProperties();
+  var token = props.getProperty('TELEGRAM_BOT_TOKEN');
+  if (!token) throw new Error('Сначала добавьте свойство TELEGRAM_BOT_TOKEN (Настройки проекта → Свойства скрипта).');
+
+  var res = JSON.parse(UrlFetchApp.fetch('https://api.telegram.org/bot' + token + '/getUpdates', { muteHttpExceptions: true }).getContentText());
+  if (!res.ok) throw new Error('Telegram не принял токен: ' + (res.description || 'проверьте TELEGRAM_BOT_TOKEN'));
+
+  var chats = {};
+  (res.result || []).forEach(function (u) {
+    var m = u.message || u.channel_post || u.my_chat_member || u.edited_message;
+    if (m && m.chat) chats[m.chat.id] = m.chat;
+  });
+  var list = Object.keys(chats).map(function (id) { return chats[id]; });
+  if (!list.length) throw new Error('Бот пока не видит ни одного чата. Добавьте его в чат организаторов, напишите там сообщение и запустите снова.');
+
+  // группы важнее личек
+  list.sort(function (a, b) { return (a.type === 'private') - (b.type === 'private'); });
+  list.forEach(function (c) { Logger.log('Найден чат: ' + (c.title || c.username || c.first_name) + ' (' + c.type + ') id=' + c.id); });
+
+  var chat = list[0];
+  props.setProperty('TELEGRAM_CHAT_ID', String(chat.id));
+  UrlFetchApp.fetch('https://api.telegram.org/bot' + token + '/sendMessage', {
+    method: 'post',
+    payload: { chat_id: chat.id, text: '☕ Бот КофеДней подключён! Сюда будут приходить новые заявки в команду.' },
+    muteHttpExceptions: true,
+  });
+  Logger.log('Готово: уведомления пойдут в «' + (chat.title || chat.username || chat.first_name) + '»');
+}
+
 function json_(obj) {
   return ContentService.createTextOutput(JSON.stringify(obj)).setMimeType(ContentService.MimeType.JSON);
 }
