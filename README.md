@@ -35,6 +35,25 @@
 | `TELEGRAM_BOT_TOKEN` | токен бота от @BotFather |
 | `TELEGRAM_CHAT_ID` | id чата организаторов (бот должен быть добавлен в чат) |
 
+## Telegram-бот
+
+Бот присылает новые заявки в чат организаторов и отвечает на команды (только в этом чате):
+`/all` (все заявки таблицей), `/new`, `/last 5`, `/card 12`, `/find Анна`, `/roles`, `/team`, `/stats`, `/today`, `/week`, `/sheet`, `/help`.
+Под карточками есть кнопки статуса (📞 Связались · ✅ В команде · ❌ Отказ), они сразу меняют таблицу.
+
+Настройка: `setupTelegram()` привязывает чат, `setupBot()` включает команды.
+Дополнительно: `enableDailyDigest()` (сводка в 10:00 МСК), `botStatus()` (диагностика), `enablePolling()` (запасной режим).
+
+## Автообновление скрипта
+
+Скрипт сам берёт `google-apps-script/Code.gs` и `appsscript.json` из этой ветки и публикует новую версию на тот же URL:
+каждые 10 минут или сразу по запросу `GET <SCRIPT_URL>?action=update`.
+
+Включается один раз:
+1. https://script.google.com/home/usersettings: **Google Apps Script API → Вкл.**
+2. В Apps Script: ⚙️ Настройки проекта → «Показывать файл манифеста appsscript.json». Вставьте содержимое `google-apps-script/appsscript.json`.
+3. Вставьте `Code.gs` и запустите `setupAutoUpdate()`.
+
 ## GitHub Pages
 
 Деплой выполняет GitHub Actions (`.github/workflows/pages.yml`) при каждом пуше.
