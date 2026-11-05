@@ -122,39 +122,73 @@ function notify_(p) {
 /**
  * Подключение Telegram в один клик.
  * 1. Свойства скрипта → TELEGRAM_BOT_TOKEN = токен от @BotFather.
- * 2. Добавьте бота в чат организаторов и напишите там любое сообщение
- *    (или напишите боту в личку /start).
+ * 2. Добавьте бота в чат организаторов и напишите в чате (в General)
+ *    команду /start@имя_бота — команды бот видит всегда.
  * 3. Запустите эту функцию: она найдёт чат, сохранит TELEGRAM_CHAT_ID
- *    и пришлёт тестовое сообщение.
+ *    и пришлёт тестовое сообщение. В чатах с темами сообщения идут в General.
  */
 function setupTelegram() {
   var props = PropertiesService.getScriptProperties();
-  var token = props.getProperty('TELEGRAM_BOT_TOKEN');
+  var token = (props.getProperty('TELEGRAM_BOT_TOKEN') || '').trim();
   if (!token) throw new Error('Сначала добавьте свойство TELEGRAM_BOT_TOKEN (Настройки проекта → Свойства скрипта).');
+  props.setProperty('TELEGRAM_BOT_TOKEN', token);
 
-  var res = JSON.parse(UrlFetchApp.fetch('https://api.telegram.org/bot' + token + '/getUpdates', { muteHttpExceptions: true }).getContentText());
-  if (!res.ok) throw new Error('Telegram не принял токен: ' + (res.description || 'проверьте TELEGRAM_BOT_TOKEN'));
+  function tg(method, payload) {
+    var r = UrlFetchApp.fetch('https://api.telegram.org/bot' + token + '/' + method, {
+      method: 'post', payload: payload || {}, muteHttpExceptions: true,
+    });
+    return JSON.parse(r.getContentText());
+  }
+
+  var me = tg('getMe');
+  if (!me.ok) throw new Error('Telegram не принял токен: ' + (me.description || 'проверьте TELEGRAM_BOT_TOKEN'));
+  var botName = '@' + me.result.username;
+  Logger.log('Токен от бота ' + botName + ' (' + me.result.first_name + ')');
+  Logger.log('Видит все сообщения в группах: ' + (me.result.can_read_all_group_messages ? 'да' : 'нет, только команды вида /start@' + me.result.username));
+
+  // Если вручную указан TELEGRAM_CHAT_ID — просто проверяем его.
+  var manual = (props.getProperty('TELEGRAM_CHAT_ID') || '').trim();
+
+  var wh = tg('getWebhookInfo');
+  if (wh.ok && wh.result.url) {
+    Logger.log('У бота был webhook (' + wh.result.url + ') — он мешает. Отключаю.');
+    tg('deleteWebhook');
+  }
+
+  var res = tg('getUpdates', { allowed_updates: JSON.stringify(['message', 'channel_post', 'my_chat_member', 'edited_message']) });
+  if (!res.ok) throw new Error('getUpdates: ' + res.description + ' — возможно, этот токен уже использует другой сервис.');
+  Logger.log('Событий у бота: ' + res.result.length);
 
   var chats = {};
-  (res.result || []).forEach(function (u) {
+  res.result.forEach(function (u) {
     var m = u.message || u.channel_post || u.my_chat_member || u.edited_message;
     if (m && m.chat) chats[m.chat.id] = m.chat;
   });
   var list = Object.keys(chats).map(function (id) { return chats[id]; });
-  if (!list.length) throw new Error('Бот пока не видит ни одного чата. Добавьте его в чат организаторов, напишите там сообщение и запустите снова.');
-
-  // группы важнее личек
-  list.sort(function (a, b) { return (a.type === 'private') - (b.type === 'private'); });
-  list.forEach(function (c) { Logger.log('Найден чат: ' + (c.title || c.username || c.first_name) + ' (' + c.type + ') id=' + c.id); });
-
-  var chat = list[0];
-  props.setProperty('TELEGRAM_CHAT_ID', String(chat.id));
-  UrlFetchApp.fetch('https://api.telegram.org/bot' + token + '/sendMessage', {
-    method: 'post',
-    payload: { chat_id: chat.id, text: '☕ Бот КофеДней подключён! Сюда будут приходить новые заявки в команду.' },
-    muteHttpExceptions: true,
+  list.forEach(function (c) {
+    Logger.log('Найден чат: «' + (c.title || c.username || c.first_name) + '» тип=' + c.type + (c.is_forum ? ' (с темами)' : '') + ' id=' + c.id);
   });
-  Logger.log('Готово: уведомления пойдут в «' + (chat.title || chat.username || chat.first_name) + '»');
+
+  var chat;
+  if (manual) {
+    chat = { id: manual, title: 'TELEGRAM_CHAT_ID=' + manual };
+  } else {
+    if (!list.length) {
+      throw new Error('Бот ' + botName + ' пока не получил ни одного сообщения. ' +
+        'Проверьте, что пишете именно ему, затем в General чата отправьте /start@' + me.result.username +
+        ' и запустите снова. Если не поможет: @BotFather → /mybots → бот → Bot Settings → Group Privacy → Turn off, ' +
+        'удалите бота из чата, добавьте заново и повторите.');
+    }
+    var rank = function (c) { return c.type === 'supergroup' ? 0 : c.type === 'group' ? 1 : c.type === 'channel' ? 2 : 3; };
+    list.sort(function (a, b) { return rank(a) - rank(b); });
+    chat = list[0];
+  }
+
+  // без message_thread_id сообщение попадает в General
+  var sent = tg('sendMessage', { chat_id: chat.id, text: '☕ Бот КофеДней подключён! Сюда будут приходить новые заявки в команду.' });
+  if (!sent.ok) throw new Error('Не удалось написать в чат ' + chat.id + ': ' + sent.description);
+  props.setProperty('TELEGRAM_CHAT_ID', String(chat.id));
+  Logger.log('Готово: уведомления пойдут в «' + (chat.title || chat.username || chat.first_name) + '» (id ' + chat.id + ')');
 }
 
 function json_(obj) {
