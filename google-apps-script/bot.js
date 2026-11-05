@@ -9,7 +9,7 @@
  * botStatus, testTelegram, enableDailyDigest, disableDailyDigest, enablePolling.
  */
 
-var BUILD = '2026-11-05.2';
+var BUILD = '2026-11-05.3';
 
 var SHEET_NAME = 'Заявки';
 var WEBAPP_URL = 'https://script.google.com/macros/s/AKfycbxR8XjjKyKizYZvjKWTs0UbliQ5u1wIpXRFNq8QioNdCmc0ni20e6QYQpjbDDP9k2zh/exec';
@@ -191,20 +191,22 @@ function notify_(r) {
  *  Telegram: вебхук и команды
  * ===================================================================== */
 
+// Важно: ничего не возвращаем. Если вернуть ContentService, Google отвечает 302,
+// Telegram считает это ошибкой и начинает повторять событие, а новые копятся в очереди.
+// Без return веб-приложение отвечает 200 сразу.
 function handleTelegram_(e) {
   var props = PropertiesService.getScriptProperties();
-  if (!props.getProperty('BOT_SECRET') || e.parameter.bot !== props.getProperty('BOT_SECRET')) return json_({ ok: false });
+  if (!props.getProperty('BOT_SECRET') || e.parameter.bot !== props.getProperty('BOT_SECRET')) return;
   var u;
-  try { u = JSON.parse(e.postData.contents); } catch (err) { return json_({ ok: true }); }
+  try { u = JSON.parse(e.postData.contents); } catch (err) { return; }
 
   // Telegram может прислать одно и то же событие повторно — обрабатываем один раз
   var cache = CacheService.getScriptCache();
   var key = 'upd_' + u.update_id;
-  if (cache.get(key)) return json_({ ok: true });
+  if (cache.get(key)) return;
   cache.put(key, '1', 21600);
 
   try { processUpdate_(u); } catch (err) { console.error('bot: ' + (err && err.stack || err)); }
-  return json_({ ok: true });
 }
 
 function processUpdate_(u) {
