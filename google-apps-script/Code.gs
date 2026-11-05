@@ -106,17 +106,42 @@ function notify_(p) {
   if (email) {
     try { MailApp.sendEmail(email, 'КофеДни: новая заявка — ' + (p.name || ''), text); } catch (e) {}
   }
-  var token = props.getProperty('TELEGRAM_BOT_TOKEN');
-  var chat = props.getProperty('TELEGRAM_CHAT_ID');
-  if (token && chat) {
-    try {
-      UrlFetchApp.fetch('https://api.telegram.org/bot' + token + '/sendMessage', {
-        method: 'post',
-        payload: { chat_id: chat, text: text },
-        muteHttpExceptions: true,
-      });
-    } catch (e) {}
+  var token = (props.getProperty('TELEGRAM_BOT_TOKEN') || '').trim();
+  var chat = (props.getProperty('TELEGRAM_CHAT_ID') || '').trim();
+  if (!token || !chat) {
+    console.warn('Telegram не настроен: TELEGRAM_BOT_TOKEN=' + (token ? 'есть' : 'нет') + ', TELEGRAM_CHAT_ID=' + (chat || 'нет'));
+    return 'Telegram не настроен';
   }
+  try {
+    var r = UrlFetchApp.fetch('https://api.telegram.org/bot' + token + '/sendMessage', {
+      method: 'post',
+      payload: { chat_id: chat, text: text },
+      muteHttpExceptions: true,
+    });
+    var body = r.getContentText();
+    if (r.getResponseCode() !== 200) console.error('Telegram ответил ошибкой: ' + body);
+    return body;
+  } catch (e) {
+    console.error('Ошибка отправки в Telegram: ' + e);
+    return String(e);
+  }
+}
+
+/**
+ * Проверка уведомлений: запустите из редактора.
+ * Шлёт в чат тестовую заявку и пишет в журнал, что ответил Telegram.
+ */
+function testTelegram() {
+  var props = PropertiesService.getScriptProperties();
+  Logger.log('TELEGRAM_CHAT_ID = ' + (props.getProperty('TELEGRAM_CHAT_ID') || '— не задан, сначала запустите setupTelegram'));
+  var res = notify_({ name: 'Тестовая заявка', phone: '+7 900 000-00-00', roles: 'Проверка уведомлений', experience: '—' });
+  Logger.log('Ответ Telegram: ' + res);
+  var j = {}; try { j = JSON.parse(res); } catch (e) {}
+  if (j.ok) Logger.log('✅ Сообщение отправлено в чат «' + (j.result.chat.title || j.result.chat.first_name) + '»');
+  else if (/chat not found/i.test(res)) Logger.log('❌ Бот не состоит в этом чате или id неверный → запустите setupTelegram заново.');
+  else if (/kicked|not a member/i.test(res)) Logger.log('❌ Бота удалили из чата → добавьте снова и запустите setupTelegram.');
+  else if (/not enough rights|CHAT_WRITE_FORBIDDEN|TOPIC_CLOSED/i.test(res)) Logger.log('❌ Боту запрещено писать: дайте ему право отправлять сообщения (или сделайте админом), проверьте, что General не закрыт.');
+  else if (/upgraded to a supergroup/i.test(res)) Logger.log('❌ Группа стала супергруппой и сменила id → запустите setupTelegram заново.');
 }
 
 /**
@@ -146,8 +171,8 @@ function setupTelegram() {
   Logger.log('Токен от бота ' + botName + ' (' + me.result.first_name + ')');
   Logger.log('Видит все сообщения в группах: ' + (me.result.can_read_all_group_messages ? 'да' : 'нет, только команды вида /start@' + me.result.username));
 
-  // Если вручную указан TELEGRAM_CHAT_ID — просто проверяем его.
-  var manual = (props.getProperty('TELEGRAM_CHAT_ID') || '').trim();
+  // TELEGRAM_CHAT_ID_MANUAL — если хотите указать чат вручную.
+  var manual = (props.getProperty('TELEGRAM_CHAT_ID_MANUAL') || '').trim();
 
   var wh = tg('getWebhookInfo');
   if (wh.ok && wh.result.url) {
@@ -159,10 +184,10 @@ function setupTelegram() {
   if (!res.ok) throw new Error('getUpdates: ' + res.description + ' — возможно, этот токен уже использует другой сервис.');
   Logger.log('Событий у бота: ' + res.result.length);
 
-  var chats = {};
+  var chats = {}, order = 0;
   res.result.forEach(function (u) {
     var m = u.message || u.channel_post || u.my_chat_member || u.edited_message;
-    if (m && m.chat) chats[m.chat.id] = m.chat;
+    if (m && m.chat) { m.chat._last = ++order; chats[m.chat.id] = m.chat; }
   });
   var list = Object.keys(chats).map(function (id) { return chats[id]; });
   list.forEach(function (c) {
@@ -180,7 +205,8 @@ function setupTelegram() {
         'удалите бота из чата, добавьте заново и повторите.');
     }
     var rank = function (c) { return c.type === 'supergroup' ? 0 : c.type === 'group' ? 1 : c.type === 'channel' ? 2 : 3; };
-    list.sort(function (a, b) { return rank(a) - rank(b); });
+    // группы важнее личек; среди групп — та, где писали последней
+    list.sort(function (a, b) { return rank(a) - rank(b) || b._last - a._last; });
     chat = list[0];
   }
 
